@@ -1,4 +1,4 @@
-# AXO Pulse — installationspakke 0.1.0-rc.3
+# AXO Pulse — installationspakke 0.1.0-rc.4
 
 Udrulningsfilerne til en kundehostet AXO Pulse-instans i jeres eget Azure-abonnement, udgivet af AX Operations ApS.
 Pakken indeholder ingen software: AXO Pulse-imaget hentes fra AX Operations' registry med det adgangstoken, I får
@@ -6,8 +6,8 @@ fra AX Operations, og I kontrollerer dets signatur før installationen.
 
 | | |
 | --- | --- |
-| Version | `0.1.0-rc.3` |
-| Image-digest | `sha256:e794150660174a0a70a9b437d95630384403da7609d24f1e07c2c64db24103e2` |
+| Version | `0.1.0-rc.4` |
+| Image-digest | `sha256:d5b96cc26acf8fd6bddeac4ea690f6c36cefe90f725d2d436bfaa0782bf4c5bf` |
 
 - **Installationsguide:** [docs/OPSAETNING.md](docs/OPSAETNING.md)
 - **Teknisk beskrivelse til sikkerheds- og infrastrukturteams:** [dansk](docs/TEKNISK-BESKRIVELSE.md) ·
@@ -17,8 +17,8 @@ fra AX Operations, og I kontrollerer dets signatur før installationen.
 Hent pakken i Azure Cloud Shell (Bash):
 
 ```
-curl -fsSL https://github.com/AXOperations/axo-pulse-install/archive/refs/tags/v0.1.0-rc.3.tar.gz | tar xz
-cd axo-pulse-install-0.1.0-rc.3
+curl -fsSL https://github.com/AXOperations/axo-pulse-install/archive/refs/tags/v0.1.0-rc.4.tar.gz | tar xz
+cd axo-pulse-install-0.1.0-rc.4
 ```
 
 Spørgsmål: kontakt AX Operations.

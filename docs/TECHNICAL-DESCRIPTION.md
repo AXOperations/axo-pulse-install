@@ -9,7 +9,7 @@ deployment creates, which permissions are granted, and which traffic goes in and
 A Danish version of this document is available as `TEKNISK-BESKRIVELSE.md`.
 
 This document corresponds to the deployment template for version 0.1. The template (`main.bicep`) and the scripts
-can be read in full before anything is run.
+are public and can be read in full before anything is run — see "Delivery: install package and image".
 
 ---
 
@@ -148,6 +148,10 @@ the parameter `vnetAddressPrefix`.
 | `*.webhook.office.com` | Notifications to Teams | Only if you set it up |
 | `*.azurecr.io` | Pull the image from your registry (the platform, at startup) | No |
 
+**During installation only** (from Azure Cloud Shell, not from the instance): `github.com` and
+`codeload.github.com` (the install package), `acraxopulse.azurecr.io` (signature check and image import; the
+import itself runs in Azure between the two registries), and Azure Resource Manager.
+
 The instance does not use an outbound firewall or a NAT gateway. If you have a requirement to control outbound
 traffic with Azure Firewall or UDR, the destinations above plus the tag `AzureKeyVault` must be allowed.
 
@@ -225,11 +229,61 @@ Without a Jira token from AX Operations, requests are only stored in the instanc
 
 ---
 
+## Delivery: install package and image
+
+An installation consists of two parts, delivered separately.
+
+**1. The install package — public, no software.** The deployment files (`main.bicep`, `registry.bicep`,
+`modules/`, `deploy.sh`, `grant-access.sh`, `parameters.example.json`) and the customer documentation, including
+this document, are published for each version in the public repository
+[github.com/AXOperations/axo-pulse-install](https://github.com/AXOperations/axo-pulse-install) under the tag
+`v<version>`. You download it in Azure Cloud Shell:
+
+```
+curl -fsSL https://github.com/AXOperations/axo-pulse-install/archive/refs/tags/v<version>.tar.gz | tar xz
+```
+
+- **Who publishes it:** AX Operations' release workflow, from the same commit and in the same run that builds and
+  signs the image. The commit message in the install repository names the source commit, and `release.json`
+  names the image digest the package belongs to.
+- **What it contains:** only the files above. No source code, no secrets, no tokens; the only identifier is AX
+  Operations' tenant ID (the default for `vendorTenantId`), which is not secret.
+- **Why it is public:** so your security team can read exactly what will be run — every resource, permission and
+  command — before anything is installed, and compare versions. On its own the package installs nothing: the
+  image can only be fetched with your access token.
+- **Integrity:** the package is fetched over HTTPS from GitHub. A published version is never re-published (the
+  release workflow refuses an existing tag). The package itself is not signed; the trust anchor is the image
+  signature below, and `deploy.sh` imports only the exact digest you pass to it.
+- **What the scripts run:** `deploy.sh` runs with the permissions of the signed-in user and only calls `az`:
+  `az account show`, `az group show` and `az provider show` (checks), `az deployment group create` (the two
+  templates), `az acr manifest show-metadata` and `az acr import` (the image).
+  `grant-access.sh` looks up the worker identity and Microsoft's API apps with
+  `az ad sp show` (and creates a Microsoft API's service principal with `az ad sp create` only if it is missing in
+  your tenant), and otherwise only calls `az rest` to grant or remove the permissions listed under "Identities and
+  permissions". Neither script writes tokens or passwords to disk or to
+  the screen.
+
+**2. The image — private, signed.** AXO Pulse itself is a container image in AX Operations' private registry
+`acraxopulse.azurecr.io`.
+
+- You receive a **registry token** from AX Operations: a name (`kunde-<short name>`) and a password sent through a
+  secure channel. The token can only read the `axo-pulse` repository, cannot push or delete, and AX Operations can
+  revoke it at any time. Paste the password at the `deploy.sh` prompt; it is not shown or stored.
+- You **verify the signature** before importing: the image is signed keyless with Sigstore by AX Operations' build
+  workflow, with an SBOM and build attestation (`SIGNERING.md`, Danish).
+- `deploy.sh` **imports the exact digest** into your own registry. After that, the instance pulls only from your
+  registry with its managed identity. There is no runtime dependency on AX Operations' registry, and AX
+  Operations has no access to your registry or your instance.
+
+---
+
 ## Updates
 
-1. AX Operations sends the version number and digest of a new version.
+1. AX Operations sends the version number and digest of a new version. You download the install package for that
+   version (as above) and can compare it with the previous version in the public repository.
 2. You verify the signature (`SIGNERING.md`, Danish).
-3. You run `deploy.sh` again with the new version and digest. The image is imported into your registry, the
+3. You run `deploy.sh` from the new package with the new version and digest.
+   The image is imported into your registry, the
    database password is rotated, and the apps restart. Database changes are run automatically when the worker
    starts.
 

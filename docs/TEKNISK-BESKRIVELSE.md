@@ -8,8 +8,8 @@ udrulningen opretter, hvilke rettigheder der gives, og hvilken trafik der går i
 
 En engelsk udgave findes som `TECHNICAL-DESCRIPTION.md`.
 
-Dokumentet svarer til udrulningsskabelonen for version 0.1. Skabelonen (`main.bicep`) og scripts kan læses i
-deres helhed, før noget køres.
+Dokumentet svarer til udrulningsskabelonen for version 0.1. Skabelonen (`main.bicep`) og scripts er offentlige og
+kan læses i deres helhed, før noget køres — se "Levering: installationspakke og image".
 
 ---
 
@@ -148,6 +148,10 @@ Skal instansen peeres med jeres netværk, så aftal et adresserum, der ikke over
 | `*.webhook.office.com` | Beskeder til Teams | Kun hvis I opsætter det |
 | `*.azurecr.io` | Hente imaget fra jeres registry (platformen, ved opstart) | Nej |
 
+**Kun under installationen** (fra Azure Cloud Shell, ikke fra instansen): `github.com` og `codeload.github.com`
+(installationspakken), `acraxopulse.azurecr.io` (signaturkontrol og import af imaget; selve importen sker i Azure
+mellem de to registries) og Azure Resource Manager.
+
 Instansen bruger ikke en udgående firewall eller NAT gateway. Har I krav om at styre udgående trafik med Azure
 Firewall eller UDR, skal ovenstående destinationer plus tagget `AzureKeyVault` tillades.
 
@@ -224,11 +228,61 @@ Uden en Jira-token fra AX Operations gemmes henvendelser kun i instansen og send
 
 ---
 
+## Levering: installationspakke og image
+
+En installation består af to dele, der leveres hver for sig.
+
+**1. Installationspakken — offentlig, ingen software.** Udrulningsfilerne (`main.bicep`, `registry.bicep`,
+`modules/`, `deploy.sh`, `grant-access.sh`, `parameters.example.json`) og kundedokumentationen, også dette dokument,
+udgives for hver version i det offentlige repository
+[github.com/AXOperations/axo-pulse-install](https://github.com/AXOperations/axo-pulse-install) under tagget
+`v<version>`. I henter den i Azure Cloud Shell:
+
+```
+curl -fsSL https://github.com/AXOperations/axo-pulse-install/archive/refs/tags/v<version>.tar.gz | tar xz
+```
+
+- **Hvem udgiver den:** AX Operations' release-workflow, fra samme commit og i samme kørsel, som bygger og signerer
+  imaget. Commit-beskeden i install-repoet nævner kilde-committen, og `release.json` nævner det image-digest,
+  pakken hører til.
+- **Hvad den indeholder:** kun filerne ovenfor. Ingen kildekode, ingen hemmeligheder, ingen tokens; den eneste
+  identifikator er AX Operations' tenant-id (standardværdien for `vendorTenantId`), som ikke er hemmeligt.
+- **Hvorfor den er offentlig:** så jeres sikkerhedsteam kan læse præcis, hvad der køres — hver ressource, rettighed
+  og kommando — før noget installeres, og sammenligne versioner. Alene installerer pakken intet: imaget kan kun
+  hentes med jeres adgangstoken.
+- **Integritet:** pakken hentes over HTTPS fra GitHub. En udgivet version udgives aldrig igen (release-workflowet
+  afviser et eksisterende tag). Selve pakken er ikke signeret; tillidsankeret er imagets signatur nedenfor, og
+  `deploy.sh` importerer kun præcis det digest, I giver den.
+- **Hvad scriptsene kører:** `deploy.sh` kører med den indloggede brugers rettigheder og kalder kun `az`:
+  `az account show`, `az group show` og `az provider show` (kontrol), `az deployment group create` (de to
+  skabeloner), `az acr manifest show-metadata` og `az acr import` (imaget).
+  `grant-access.sh` slår worker-identiteten og Microsofts API-apps op med
+  `az ad sp show` (og opretter kun et service principal for en Microsoft-API med `az ad sp create`, hvis det mangler
+  i jeres tenant), og kalder ellers kun `az rest` for at give eller fjerne de rettigheder, der står under
+  "Identiteter og rettigheder". Ingen af dem skriver tokens eller adgangskoder til
+  disk eller skærm.
+
+**2. Imaget — privat, signeret.** Selve AXO Pulse er et container-image i AX Operations' private registry
+`acraxopulse.azurecr.io`.
+
+- I får et **registry-token** fra AX Operations: et navn (`kunde-<kortnavn>`) og en adgangskode, sendt ad en sikker
+  kanal. Tokenet kan kun læse repositoryet `axo-pulse`, kan ikke pushe eller slette, og AX Operations kan
+  tilbagekalde det når som helst. Indsæt adgangskoden ved prompten i `deploy.sh`; den vises og gemmes ikke.
+- I **kontrollerer signaturen** før importen: imaget signeres keyless med Sigstore af AX Operations' byggeworkflow,
+  med SBOM og build-attestation (`SIGNERING.md`).
+- `deploy.sh` **importerer præcis det digest** til jeres eget registry. Derefter henter instansen kun fra jeres
+  registry med sin managed identity. Der er ingen afhængighed af AX Operations' registry under drift, og AX
+  Operations har ingen adgang til jeres registry eller instans.
+
+---
+
 ## Opdateringer
 
-1. AX Operations sender versionsnummer og digest på en ny version.
+1. AX Operations sender versionsnummer og digest på en ny version. I henter installationspakken for den version
+   (som ovenfor) og kan sammenligne den med den forrige version i det offentlige repository.
 2. I kontrollerer signaturen (`SIGNERING.md`).
-3. I kører `deploy.sh` igen med den nye version og digest. Imaget importeres til jeres registry, databasens
+3. I kører `deploy.sh` fra den nye pakke med den nye version og digest.
+   Imaget importeres til jeres registry, databasens
    adgangskode skiftes, og app'ene genstarter. Databaseændringer køres automatisk, når worker'en starter.
 
 I bestemmer selv, hvornår en opdatering installeres. AX Operations kan ikke opdatere instansen.
